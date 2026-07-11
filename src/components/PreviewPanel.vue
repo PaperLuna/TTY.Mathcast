@@ -94,60 +94,82 @@ function applyColWidths() {
   }
 }
 
-/** Reflow: move center lines to right column if overflow, and vice versa */
-async function reflowToFit() {
+// ── Generic column definitions (extensible for future layouts) ─
+interface ColumnDef {
+  /** CSS selector for the .steps container in this column */
+  selector: string;
+  /** Which Beat.type maps to this column */
+  beatType: Beat["type"];
+}
+
+const COLUMNS: ColumnDef[] = [
+  { selector: ".col-center .steps", beatType: "center" },
+  { selector: ".col-right .steps", beatType: "right" },
+];
+
+/**
+ * DOM-based overflow sniffing & rebalance.
+ *
+ * After the stage is rendered, this checks each column for overflow
+ * (scrollHeight > clientHeight).  When overflow is detected it either
+ * moves the last beat to the next column or inserts a page-break beat.
+ *
+ * The algorithm is layout-agnostic — only `COLUMNS` needs updating
+ * when the stage layout changes.
+ */
+async function sniffAndRebalance() {
   if (!store.beats.length || !stageRef.value) return;
+
   const prevCurrent = store.current;
   store.current = store.beats.length - 1;
   await renderStage(store.current);
 
-  const centerCol = stageRef.value.querySelector(".col-center .steps") as HTMLElement;
-  const rightCol = stageRef.value.querySelector(".col-right .steps") as HTMLElement;
-  if (!centerCol) {
-    store.current = prevCurrent;
-    return;
-  }
+  const maxIter = store.beats.length * 4;
+  let iter = 0;
+  let dirty = true;
 
-  const maxMoves = store.beats.length;
+  while (dirty && iter < maxIter) {
+    dirty = false;
+    iter++;
 
-  // Center overflow → move the newest center line to right, one by one
-  let guard = 0;
-  while (centerCol.scrollHeight > centerCol.clientHeight + 2 && guard < maxMoves) {
-    let lastCenter = -1;
-    for (let i = store.beats.length - 1; i >= 0; i--) {
-      if (store.beats[i].type === "center") {
-        lastCenter = i;
-        break;
-      }
-    }
-    if (lastCenter < 0) break;
-    store.beats[lastCenter].type = "right";
-    await renderStage(store.current);
-    guard++;
-  }
+    for (let ci = 0; ci < COLUMNS.length; ci++) {
+      const colDef = COLUMNS[ci];
+      const stepsEl = stageRef.value!.querySelector(colDef.selector) as HTMLElement | null;
+      if (!stepsEl) continue;
 
-  // Right overflow → move the oldest right line back to center if there is room.
-  // This keeps the reading order natural (center top→bottom, then right top→bottom).
-  if (rightCol) {
-    guard = 0;
-    while (rightCol.scrollHeight > rightCol.clientHeight + 2 && guard < maxMoves) {
-      let firstRight = -1;
-      for (let i = 0; i < store.beats.length; i++) {
-        if (store.beats[i].type === "right") {
-          firstRight = i;
+      // Check for overflow (2px tolerance for rounding)
+      if (stepsEl.scrollHeight <= stepsEl.clientHeight + 2) continue;
+
+      // ── Overflow detected ───────────────────────────────
+      // Find the LAST beat of this column's type (search backwards, skip pagebreaks)
+      let overflowIdx = -1;
+      for (let i = store.beats.length - 1; i >= 0; i--) {
+        if (store.beats[i].type === colDef.beatType) {
+          overflowIdx = i;
           break;
         }
       }
-      if (firstRight < 0) break;
-      store.beats[firstRight].type = "center";
-      await renderStage(store.current);
-      if (centerCol.scrollHeight > centerCol.clientHeight + 2) {
-        // Can't fit in center either: restore and stop
-        store.beats[firstRight].type = "right";
-        await renderStage(store.current);
-        break;
+      if (overflowIdx < 0) continue;
+
+      const nextCol = COLUMNS[ci + 1];
+
+      if (nextCol) {
+        // Spill to the next column
+        store.beats[overflowIdx].type = nextCol.beatType;
+      } else {
+        // Last column — insert a page break BEFORE the overflowing beat
+        store.beats.splice(overflowIdx, 0, {
+          type: "pagebreak",
+          text: "",
+          leftImgIndex: overflowIdx > 0 ? store.beats[overflowIdx - 1].leftImgIndex : null,
+          rightImgIndex: overflowIdx > 0 ? store.beats[overflowIdx - 1].rightImgIndex : null,
+          duration: 1.5,
+        });
       }
-      guard++;
+
+      await renderStage(store.current);
+      dirty = true;
+      break; // restart column scan after each change
     }
   }
 
@@ -339,7 +361,7 @@ watch(
 );
 
 // Expose to parent via defineExpose
-defineExpose({ playPreview, exportVideo, updatePreview, reflowToFit, updateScale });
+defineExpose({ playPreview, exportVideo, updatePreview, sniffAndRebalance, updateScale });
 </script>
 
 <template>

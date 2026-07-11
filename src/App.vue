@@ -26,6 +26,7 @@ function hasTitle(): boolean {
 
 async function reparseAndRender() {
   const ht = hasTitle();
+  // 1) Fast formula-based allocation + page breaks
   let newBeats = parseText(
     store.steps, store.beats, ht,
     store.H, store.stepFontSize, store.stepGap
@@ -34,6 +35,9 @@ async function reparseAndRender() {
   store.beats.splice(0, store.beats.length, ...newBeats);
   store.current = store.beats.length - 1;
   await previewPanelRef.value?.updatePreview();
+
+  // 2) DOM-based sniffing — catches edge cases formulas miss
+  await previewPanelRef.value?.sniffAndRebalance();
 }
 
 async function refreshPreview() {
@@ -81,6 +85,7 @@ function handleExport() {
 async function handleProjectLoaded() {
   await nextTick();
   await refreshPreview();
+  await previewPanelRef.value?.sniffAndRebalance();
 }
 
 /** Settings change → re-parse and re-render */
@@ -164,6 +169,7 @@ watch(
         );
         store.beats.splice(0, store.beats.length, ...newBeats);
         await refreshPreview();
+        await previewPanelRef.value?.sniffAndRebalance();
       }
     }, 400);
   }
@@ -180,6 +186,7 @@ onMounted(async () => {
 
   await nextTick();
   await refreshPreview();
+  await previewPanelRef.value?.sniffAndRebalance();
   store.clearDirty();
 
   // Register drag-drop listener for project file import

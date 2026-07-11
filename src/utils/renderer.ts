@@ -258,7 +258,7 @@ export function buildStageHTML(
     #stage .step-line hr{border:none;border-top:1px solid ${th.border};margin:.4em 0;}
     #stage .step-line img{max-width:100%;border-radius:6px;}
     #stage .step-line a{color:${th.accent};}
-    #stage .old-line{color:${th.text};opacity:.82;}
+    #stage .old-line{color:${th.text};opacity:.82;border-color:transparent;background:transparent;}
     #stage .new-line{color:${th.red};font-weight:700;border-color:${th.red};}
     #stage .ph{margin:auto;color:${th.muted};font-size:22px;text-align:center;line-height:1.6;
       border:2px dashed ${th.border};border-radius:14px;padding:32px 40px;}
