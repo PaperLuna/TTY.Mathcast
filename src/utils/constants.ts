@@ -27,7 +27,7 @@ export const THEMES: Record<string, Theme> = {
     panel: "#ffffff",
     border: "rgba(15,23,42,0.10)",
     red: "#e11d48",
-    accent: "#0ea5e9",
+    accent: "#111111",
     muted: "#64748b",
   },
   warm: {
@@ -98,6 +98,8 @@ export function createDefaultState() {
     theme: "white",
     leftFit: "contain",
     colW: [22, 48, 30],
+    leftImgOffset: 50,
+    rightImgOffset: 50,
     stepFontSize: 33,
     stepFontFamily: FONT_VAL.sans,
     titleFontSize: 38,

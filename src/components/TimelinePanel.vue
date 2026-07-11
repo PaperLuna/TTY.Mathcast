@@ -200,12 +200,12 @@ function batchSetDuration() {
 }
 
 .badge.center {
-  background: rgba(14, 165, 233, 0.15);
+  background: rgba(0, 0, 0, 0.08);
   color: var(--accent);
 }
 
 .badge.right {
-  background: rgba(99, 102, 241, 0.18);
+  background: rgba(0, 0, 0, 0.06);
   color: var(--accent2);
 }
 

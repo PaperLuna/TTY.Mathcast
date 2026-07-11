@@ -14,6 +14,8 @@ export const useProjectStore = defineStore("project", () => {
   const theme = ref("white");
   const leftFit = ref("contain");
   const colW = ref([22, 48, 30]);
+  const leftImgOffset = ref(50);   // vertical offset % for left column image
+  const rightImgOffset = ref(50);  // vertical offset % for right column image
 
   const stepFontSize = ref(33);
   const stepFontFamily = ref(FONT_VAL.sans);
@@ -74,6 +76,8 @@ export const useProjectStore = defineStore("project", () => {
       theme: theme.value,
       leftFit: leftFit.value,
       colW: colW.value,
+      leftImgOffset: leftImgOffset.value,
+      rightImgOffset: rightImgOffset.value,
       stepFontSize: stepFontSize.value,
       stepFontFamily: stepFontFamily.value,
       titleFontSize: titleFontSize.value,
@@ -95,6 +99,8 @@ export const useProjectStore = defineStore("project", () => {
     theme.value = d.theme || "white";
     leftFit.value = d.leftFit || "contain";
     colW.value = d.colW || [22, 48, 30];
+    leftImgOffset.value = d.leftImgOffset != null ? d.leftImgOffset : 50;
+    rightImgOffset.value = d.rightImgOffset != null ? d.rightImgOffset : 50;
     stepFontSize.value = d.stepFontSize || 33;
     stepFontFamily.value = d.stepFontFamily || FONT_VAL.sans;
     titleFontSize.value = d.titleFontSize || 38;
@@ -142,7 +148,7 @@ export const useProjectStore = defineStore("project", () => {
   return {
     // state
     beats, leftImages, rightImages, current,
-    theme, leftFit, colW,
+    theme, leftFit, colW, leftImgOffset, rightImgOffset,
     stepFontSize, stepFontFamily, titleFontSize, titleFontFamily, stepGap,
     title, steps, W, H,
     playing, exporting, cancelFlag, dirty, applying,

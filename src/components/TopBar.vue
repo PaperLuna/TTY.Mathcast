@@ -10,6 +10,7 @@ const emit = defineEmits<{
   (e: "play"): void;
   (e: "export"): void;
   (e: "settings"): void;
+  (e: "project-loaded"): void;
 }>();
 
 const resModel = computed({
@@ -42,7 +43,7 @@ async function handleLoad() {
   const result = await loadProjectFile();
   if (result.data) {
     store.deserialize(result.data);
-    emit("export"); // trigger re-render via parent
+    emit("project-loaded"); // trigger re-render
     showToast(result.message, "success");
   } else {
     showToast(result.message, "error");

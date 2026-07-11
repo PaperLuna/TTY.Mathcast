@@ -1,7 +1,10 @@
 <script setup lang="ts">
-import { ref, onMounted, nextTick } from "vue";
+import { ref, onMounted, onUnmounted, nextTick } from "vue";
 import { useProjectStore } from "@/stores/project";
 import { parseText, insertPageBreaks } from "@/utils/parser";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { confirm } from "@tauri-apps/plugin-dialog";
+import { readTextFile } from "@tauri-apps/plugin-fs";
 import TopBar from "@/components/TopBar.vue";
 import InputPanel from "@/components/InputPanel.vue";
 import PreviewPanel from "@/components/PreviewPanel.vue";
@@ -13,35 +16,40 @@ const store = useProjectStore();
 const showSettings = ref(false);
 const previewPanelRef = ref<InstanceType<typeof PreviewPanel>>();
 
+let dragDropUnlisten: (() => void) | null = null;
+
+// ── Helpers ──────────────────────────────────────────────
+
+function hasTitle(): boolean {
+  return store.title.trim().length > 0;
+}
+
+async function reparseAndRender() {
+  const ht = hasTitle();
+  let newBeats = parseText(
+    store.steps, store.beats, ht,
+    store.H, store.stepFontSize, store.stepGap
+  );
+  newBeats = insertPageBreaks(newBeats, ht, store.H, store.stepFontSize, store.stepGap, store.colW, store.rightImages.length > 0);
+  store.beats.splice(0, store.beats.length, ...newBeats);
+  store.current = store.beats.length - 1;
+  await previewPanelRef.value?.updatePreview();
+}
+
+async function refreshPreview() {
+  await previewPanelRef.value?.updatePreview();
+  previewPanelRef.value?.updateScale();
+}
+
+// ── Actions ──────────────────────────────────────────────
+
 /** Apply changes: parse text → insert page breaks → render */
 async function applyChanges() {
   if (!store.dirty || store.applying) return;
   store.setApplying(true);
 
   const t0 = Date.now();
-  const hasTitle = store.title.trim().length > 0;
-
-  // Parse text into beats, then insert page breaks for auto-pagination
-  let newBeats = parseText(
-    store.steps,
-    store.beats,
-    hasTitle,
-    store.H,
-    store.stepFontSize,
-    store.stepGap
-  );
-  newBeats = insertPageBreaks(
-    newBeats,
-    hasTitle,
-    store.H,
-    store.stepFontSize,
-    store.stepGap
-  );
-
-  store.beats.splice(0, store.beats.length, ...newBeats);
-  store.current = store.beats.length - 1;
-
-  await previewPanelRef.value?.updatePreview();
+  await reparseAndRender();
 
   const el = Date.now() - t0;
   if (el < 500) await new Promise((r) => setTimeout(r, 500 - el));
@@ -69,58 +77,123 @@ function handleExport() {
   }
 }
 
+/** Called after a project file is loaded — re-render the stage */
+async function handleProjectLoaded() {
+  await nextTick();
+  await refreshPreview();
+}
+
 /** Settings change → re-parse and re-render */
 async function onSettingsChange() {
-  const hasTitle = store.title.trim().length > 0;
-  let newBeats = parseText(
-    store.steps, store.beats, hasTitle,
-    store.H, store.stepFontSize, store.stepGap
-  );
-  newBeats = insertPageBreaks(newBeats, hasTitle, store.H, store.stepFontSize, store.stepGap);
-  store.beats.splice(0, store.beats.length, ...newBeats);
-  await previewPanelRef.value?.updatePreview();
+  await reparseAndRender();
 }
 
 /** Handle resolution change */
 function handleResolutionChange() {
   nextTick(async () => {
-    const hasTitle = store.title.trim().length > 0;
-    let newBeats = parseText(
-      store.steps, store.beats, hasTitle,
-      store.H, store.stepFontSize, store.stepGap
-    );
-    newBeats = insertPageBreaks(newBeats, hasTitle, store.H, store.stepFontSize, store.stepGap);
-    store.beats.splice(0, store.beats.length, ...newBeats);
-    await previewPanelRef.value?.updatePreview();
+    await reparseAndRender();
     previewPanelRef.value?.updateScale();
   });
 }
+
+/** Check if a JSON object looks like a MathCast project file */
+function isMathCastProject(data: unknown): data is Record<string, unknown> {
+  if (!data || typeof data !== "object") return false;
+  const d = data as Record<string, unknown>;
+  return (
+    Array.isArray(d.beats) ||
+    typeof d.theme === "string" ||
+    typeof d.steps === "string" ||
+    typeof d.title === "string"
+  );
+}
+
+/** Attempt to import a dropped JSON file as a MathCast project */
+async function tryImportProject(filePath: string) {
+  // Only handle .json files
+  if (!filePath.toLowerCase().endsWith(".json")) return;
+
+  let text: string;
+  try {
+    text = await readTextFile(filePath);
+  } catch {
+    // File not readable (permissions, etc.) — silently ignore
+    return;
+  }
+
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    // Not valid JSON — silently ignore
+    return;
+  }
+
+  if (!isMathCastProject(data)) return;
+
+  const fileName = filePath.split(/[\\/]/).pop() || filePath;
+  const answer = await confirm(
+    `检测到 MathCast 工程文件「${fileName}」，是否导入并开始编辑？`,
+    { title: "MathCast", kind: "info" }
+  );
+
+  if (!answer) return;
+
+  store.deserialize(data);
+  await handleProjectLoaded();
+}
+
+// ── Lifecycle ────────────────────────────────────────────
 
 // Watch resolution changes
 import { watch } from "vue";
 watch(() => store.resolution, handleResolutionChange);
 
-/** Initialize: load config or set defaults */
+// Watch column width changes (debounced — re-run page breaks on drag-stop)
+let colWTimer: ReturnType<typeof setTimeout> | null = null;
+watch(
+  () => [...store.colW],
+  () => {
+    if (colWTimer) clearTimeout(colWTimer);
+    colWTimer = setTimeout(async () => {
+      if (store.beats.length > 0) {
+        const ht = hasTitle();
+        const newBeats = insertPageBreaks(
+          [...store.beats], ht, store.H, store.stepFontSize, store.stepGap,
+          store.colW, store.rightImages.length > 0
+        );
+        store.beats.splice(0, store.beats.length, ...newBeats);
+        await refreshPreview();
+      }
+    }, 400);
+  }
+);
+
 onMounted(async () => {
+  // Load saved config or start fresh
   const loaded = await store.loadFromConfig();
   if (!loaded) {
-    store.steps = ``;
+    store.steps = "";
     store.title = "";
-
-    const hasTitle = store.title.trim().length > 0;
-    let newBeats = parseText(
-      store.steps, [], hasTitle,
-      store.H, store.stepFontSize, store.stepGap
-    );
-    newBeats = insertPageBreaks(newBeats, hasTitle, store.H, store.stepFontSize, store.stepGap);
-    store.beats.splice(0, store.beats.length, ...newBeats);
-    store.current = store.beats.length - 1;
+    await reparseAndRender();
   }
 
   await nextTick();
-  await previewPanelRef.value?.updatePreview();
-  previewPanelRef.value?.updateScale();
+  await refreshPreview();
   store.clearDirty();
+
+  // Register drag-drop listener for project file import
+  dragDropUnlisten = await getCurrentWindow().onDragDropEvent((event) => {
+    if (event.payload.type === "drop") {
+      for (const path of event.payload.paths) {
+        tryImportProject(path);
+      }
+    }
+  });
+});
+
+onUnmounted(() => {
+  dragDropUnlisten?.();
 });
 </script>
 
@@ -130,6 +203,7 @@ onMounted(async () => {
       @play="handlePlay"
       @export="handleExport"
       @settings="showSettings = true"
+      @project-loaded="handleProjectLoaded"
     />
 
     <InputPanel

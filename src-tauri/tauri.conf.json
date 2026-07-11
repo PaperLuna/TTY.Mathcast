@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "MathCast",
+  "productName": "TTY.MathCast",
   "version": "1.0.0",
   "identifier": "com.mathcast.desktop",
   "mainBinaryName": "TTY.Mathcast",
@@ -13,7 +13,7 @@
   "app": {
     "windows": [
       {
-        "title": "MathCast - 数学题讲解视频生成器",
+        "title": "TTY.MathCast",
         "width": 1400,
         "height": 900,
         "minWidth": 1100,
@@ -29,7 +29,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "msi"],
+    "targets": ["nsis"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -39,13 +39,13 @@
     ],
     "resources": [],
     "externalBin": [],
-    "copyright": "© 2026 MathCast",
+    "copyright": "(c) 2026 hmr-BH",
     "category": "Education",
     "shortDescription": "数学题讲解视频生成器",
     "longDescription": "MathCast 是一款面向数学教育工作者的解题视频生成工具，支持 LaTeX 公式、多栏布局、主题切换和视频导出。",
     "windows": {
       "webviewInstallMode": {
-        "type": "offlineInstaller"
+        "type": "downloadBootstrapper"
       },
       "nsis": {
         "installerIcon": "icons/icon.ico",

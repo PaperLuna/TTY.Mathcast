@@ -17,11 +17,21 @@ export function computeMaxLines(
   stepFontSize: number,
   stepGap: number
 ): number {
-  const titleH = hasTitle ? 92 : 0;
-  const padV = 48;
-  const bottomReserve = 36;
-  const availH = H - titleH - padV - bottomReserve;
-  const lineH = stepFontSize * 1.5 + 16 + stepGap;
+  // ── Stage vertical layout ──────────────────────────────
+  // stage padding-top:        12px
+  // title (if present):       84px + 8mt + 8mb + 8bt + 1bb = 109px
+  // grid padding-bottom:      12px
+  // footer:                   28px + 8bt = 36px
+  // col-body vertical padding: 20px + 20px = 40px
+  const titleH = hasTitle ? 109 : 0;
+  const chrome = titleH + 12 + 12 + 36 + 40;  // total non-content vertical space
+
+  // ── Single line height ────────────────────────────────
+  // .step-line: font-size * line-height(1.45) + padding-top(6) + padding-bottom(6)
+  //           + border-top(1) + border-bottom(1) + gap
+  const lineH = stepFontSize * 1.45 + 14 + stepGap;
+
+  const availH = H - chrome;
   return Math.max(1, Math.floor(availH / lineH));
 }
 
@@ -134,7 +144,7 @@ export function parseText(
 /**
  * Insert page-break beats into the beat list when both center and right
  * columns would overflow. After a pagebreak, both columns reset and
- * remaining beats start fresh on a new "page".
+ * remaining beats start fresh on a new "page", always filling center first.
  *
  * Page breaks preserve image/duration settings:
  *   - A pagebreak inherits its leftImgIndex/rightImgIndex from the
@@ -147,57 +157,57 @@ export function insertPageBreaks(
   hasTitle: boolean,
   H: number,
   stepFontSize: number,
-  stepGap: number
+  stepGap: number,
+  colW: number[],
+  hasRightImages: boolean
 ): Beat[] {
   const maxCenter = computeMaxLines(hasTitle, H, stepFontSize, stepGap);
-  const maxRight = maxCenter; // Same column height
+
+  // ── Right-column capacity ──────────────────────────────
+  // 1) Narrower column → text wraps more, so each beat consumes
+  //    more vertical space.  Scale beat weight by inverse width ratio.
+  //    (default: center 48fr, right 30fr → wrapFactor ≈ 48/30 = 1.6)
+  const wrapFactor = colW[1] > 0 ? colW[1] / colW[2] : 1.6;
+
+  // 2) When a right image is present, the text area is restricted to
+  //    45 % of the column height (image takes the other 55 % via
+  //    .img-half / .steps flex split).
+  //    Check if ANY beat actually assigns a right image.
+  const beatsHaveRightImage = beats.some(
+    (b) => b.rightImgIndex != null && b.rightImgIndex >= 0
+  );
+  const imageHeightFactor = hasRightImages && beatsHaveRightImage ? 0.45 : 1.0;
+  const maxRight = Math.max(1, Math.floor(maxCenter * imageHeightFactor));
 
   const result: Beat[] = [];
-  let centerW = 0; // cumulative weight in center column
-  let rightW = 0; // cumulative weight in right column
+  let centerW = 0;
+  let rightW = 0;
 
   for (const beat of beats) {
     const w = beatWeight(beat);
+    const rw = w * wrapFactor;
 
-    if (beat.type === "center") {
-      if (centerW + w <= maxCenter) {
-        result.push(beat);
-        centerW += w;
-      } else if (rightW + w <= maxRight) {
-        // Center is full → move this beat to right column
-        result.push({ ...beat, type: "right" });
-        rightW += w;
-      } else {
-        // Both columns full → insert page break, then place the beat
-        result.push(makePageBreak(beat));
-        centerW = 0;
-        rightW = 0;
-        // Place on new page (start in center if it fits, else right)
-        if (w <= maxCenter) {
-          result.push(beat);
-          centerW += w;
-        } else {
-          result.push({ ...beat, type: "right" });
-          rightW += w;
-        }
-      }
+    // ── Always try center first ──────────────────────────
+    // If center has room, place there regardless of original beat type.
+    // Right column is only used when center is already full.
+    if (centerW + w <= maxCenter) {
+      result.push({ ...beat, type: "center" });
+      centerW += w;
+    } else if (beat.type === "right" && rightW + rw <= maxRight) {
+      // Center full, beat originally wanted right, and right has room
+      result.push(beat);
+      rightW += rw;
+    } else if (rightW + rw <= maxRight) {
+      // Center full → spill to right
+      result.push({ ...beat, type: "right" });
+      rightW += rw;
     } else {
-      // beat.type === "right"
-      if (rightW + w <= maxRight) {
-        result.push(beat);
-        rightW += w;
-      } else if (centerW + w <= maxCenter) {
-        // Right is full → move this beat to center column
-        result.push({ ...beat, type: "center" });
-        centerW += w;
-      } else {
-        // Both columns full → insert page break, then place on right
-        result.push(makePageBreak(beat));
-        centerW = 0;
-        rightW = 0;
-        result.push(beat);
-        rightW += w;
-      }
+      // Both full → page break, start fresh in center
+      result.push(makePageBreak(beat));
+      centerW = 0;
+      rightW = 0;
+      result.push({ ...beat, type: "center" });
+      centerW += w;
     }
   }
 

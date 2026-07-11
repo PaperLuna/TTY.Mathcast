@@ -33,6 +33,8 @@ export interface ProjectState {
   theme: string;
   leftFit: string;
   colW: number[];
+  leftImgOffset: number;
+  rightImgOffset: number;
   stepFontSize: number;
   stepFontFamily: string;
   titleFontSize: number;

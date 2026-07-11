@@ -51,6 +51,20 @@ function renderMarkdown(text: string): string {
     return PH(i);
   });
 
+  // ── Auto-wrap bare LaTeX commands ─────────────────────
+  // Users often write raw \angle, \tan, \frac{1}{2} etc. without
+  // $ delimiters.  Wrap them so KaTeX can pick them up.
+  // Only runs on text that is NOT already inside a math block
+  // (those were protected above and replaced with placeholders).
+  p = p.replace(
+    /\\[a-zA-Z]{2,}(?:\{[^{}]*\}(?:\{[^{}]*\})?)?/g,
+    (m) => {
+      const i = mathBlocks.length;
+      mathBlocks.push(`$${m}$`);
+      return PH(i);
+    }
+  );
+
   // Parse Markdown → HTML
   let html = marked.parse(p) as string;
 
@@ -94,7 +108,6 @@ export function computeState(
   const right: string[] = [];
   let left: StoredImage | null = null;
   let rimg: StoredImage | null = null;
-  let page = 1;
 
   for (let i = 0; i <= upto && i < beats.length; i++) {
     const b = beats[i];
@@ -110,7 +123,6 @@ export function computeState(
         // Past a pagebreak — reset columns for new page
         center.length = 0;
         right.length = 0;
-        page++;
       }
       // If i === upto (currently AT a pagebreak beat), keep accumulated
       // content so the viewer sees the completed page before transition.
@@ -132,7 +144,7 @@ export function computeState(
     left,
     rimg,
     lastType: upto >= 0 && upto < beats.length ? beats[upto].type : null,
-    page,
+    page: 1,
   };
 }
 
@@ -154,21 +166,27 @@ export function buildStageHTML(
     title: string;
     W: number;
     H: number;
+    leftImgOffset: number;
+    rightImgOffset: number;
   }
 ): string {
   const s = computeState(upto, beats, leftImages, rightImages);
   const th = THEMES[opts.theme] || THEMES.white;
 
   const leftHtml = s.left
-    ? `<div class="col-fill" style="background-image:url('${s.left.url}');${fitStyle(opts.leftFit)}"></div>`
+    ? `<div class="col-fill" style="background-image:url('${s.left.url}');${fitStyle(opts.leftFit)}background-position-y:${opts.leftImgOffset}%;"></div>`
     : `<div class="ph">左栏图片<br>（在打轴里指定）</div>`;
 
-  const centerLines = s.center.length
-    ? s.center
+  // ── Build step-lines, skipping empty beats ────────────
+  const centerNonEmpty = s.center.filter((t) => t.trim());
+  const rightNonEmpty = s.right.filter((t) => t.trim());
+
+  const centerLines = centerNonEmpty.length
+    ? centerNonEmpty
         .map(
           (t, i) =>
             `<div class="step-line ${hasDisplayMath(t) ? "formula-block " : ""}${
-              i === s.center.length - 1 && s.lastType === "center"
+              i === centerNonEmpty.length - 1 && s.lastType === "center"
                 ? "new-line"
                 : "old-line"
             }">${renderMarkdown(t)}</div>`
@@ -176,12 +194,12 @@ export function buildStageHTML(
         .join("")
     : `<div class="ph">在左侧输入解题步骤</div>`;
 
-  const rightLines = s.right.length
-    ? s.right
+  const rightLines = rightNonEmpty.length
+    ? rightNonEmpty
         .map(
           (t, i) =>
             `<div class="step-line ${hasDisplayMath(t) ? "formula-block " : ""}${
-              i === s.right.length - 1 && s.lastType === "right"
+              i === rightNonEmpty.length - 1 && s.lastType === "right"
                 ? "new-line"
                 : "old-line"
             }">${renderMarkdown(t)}</div>`
@@ -191,7 +209,7 @@ export function buildStageHTML(
 
   const rightColClass = s.rimg ? "col col-right has-rimg" : "col col-right";
   const rightCol = s.rimg
-    ? `<div class="col-body img-half" style="justify-content:center;align-items:center"><img src="${s.rimg.url}" class="col-img"></div>
+    ? `<div class="col-body img-half" style="justify-content:center;align-items:center"><img src="${s.rimg.url}" class="col-img" style="object-position:50% ${opts.rightImgOffset}%;"></div>
        <div class="col-body steps">${rightLines}</div>`
     : `<div class="col-body steps" style="flex:1">${rightLines}</div>`;
 
@@ -202,12 +220,12 @@ export function buildStageHTML(
 	  return `
 	  <style>
     #stage{background:${th.bg};color:${th.text};font-family:${FONT_VAL.sans};display:flex;flex-direction:column;
-      padding:12px 20px 20px;position:relative;}
-	    #stage .stage-title{flex:0 0 84px;height:84px;margin-top:8px;margin-bottom:8px;display:flex;align-items:center;
-	      padding:0 40px;font-size:${opts.titleFontSize}px;font-family:${opts.titleFontFamily};font-weight:700;
-	      letter-spacing:1px;color:${th.text};border-top:8px solid ${th.accent};border-bottom:1px solid ${th.border};}
-	    #stage .stage-grid{display:grid;grid-template-columns:${opts.colW[0]}fr ${opts.colW[1]}fr ${opts.colW[2]}fr;flex:1;min-height:0;
-	      gap:0;}
+      padding:12px 20px 0;}
+    #stage .stage-title{flex:0 0 84px;height:84px;margin-top:8px;margin-bottom:8px;display:flex;align-items:center;
+      padding:0 40px;font-size:${opts.titleFontSize}px;font-family:${opts.titleFontFamily};font-weight:700;
+      letter-spacing:1px;color:${th.text};border-top:8px solid ${th.accent};border-bottom:1px solid ${th.border};}
+    #stage .stage-grid{display:grid;grid-template-columns:${opts.colW[0]}fr ${opts.colW[1]}fr ${opts.colW[2]}fr;flex:1;min-height:0;
+      gap:0;padding-bottom:12px;}
 	    #stage .col{display:flex;flex-direction:column;min-height:0;background:${th.bg};}
 	    #stage .col-left{border-right:1px solid ${th.border};}
 	    #stage .col-center{border-right:1px solid ${th.border};}
@@ -244,12 +262,8 @@ export function buildStageHTML(
     #stage .new-line{color:${th.red};font-weight:700;border-color:${th.red};}
     #stage .ph{margin:auto;color:${th.muted};font-size:22px;text-align:center;line-height:1.6;
       border:2px dashed ${th.border};border-radius:14px;padding:32px 40px;}
-    #stage .pagebreak-overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
-      background:${th.bg};z-index:10;pointer-events:none;}
-    #stage .pagebreak-overlay .pb-inner{text-align:center;}
-    #stage .pagebreak-overlay .pb-divider{width:120px;height:2px;background:${th.accent};margin:0 auto 16px;opacity:0.5;}
-    #stage .pagebreak-overlay .pb-text{font-size:28px;font-weight:700;color:${th.accent};letter-spacing:2px;}
-    #stage .pagebreak-overlay .pb-sub{font-size:16px;color:${th.muted};margin-top:4px;}
+    #stage .stage-footer{flex:0 0 28px;height:28px;margin-top:0;border-top:8px solid ${th.accent};
+      margin-left:20px;margin-right:20px;}
   </style>
   ${titleHtml}
   <div class="stage-grid">
@@ -257,15 +271,5 @@ export function buildStageHTML(
     <div class="col col-center"><div class="col-body steps">${centerLines}</div></div>
     <div class="${rightColClass}">${rightCol}</div>
   </div>
-  ${
-    s.lastType === "pagebreak"
-      ? `<div class="pagebreak-overlay">
-           <div class="pb-inner">
-             <div class="pb-divider"></div>
-             <div class="pb-text">— 换 页 —</div>
-             <div class="pb-sub">第 ${s.page + 1} 页</div>
-           </div>
-         </div>`
-      : ""
-  }`;
+  <div class="stage-footer"></div>`;
 }

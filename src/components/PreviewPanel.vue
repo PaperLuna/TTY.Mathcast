@@ -37,6 +37,8 @@ async function renderStage(upto: number) {
     title: store.title,
     W: store.W,
     H: store.H,
+    leftImgOffset: store.leftImgOffset,
+    rightImgOffset: store.rightImgOffset,
   });
   stageRef.value.innerHTML = html;
   // Render KaTeX math
@@ -158,7 +160,19 @@ async function reflowToFit() {
 function onSlider(idx: number, e: Event) {
   const val = +(e.target as HTMLInputElement).value;
   store.colW[idx] = val;
+  // Right column fills the remainder: 100 - left - center
+  store.colW[2] = Math.max(5, 100 - store.colW[0] - store.colW[1]);
   applyColWidths();
+  store.markDirty();
+}
+
+// ── Image offset sliders ────────────────────────────────
+function onImgOffset(side: "left" | "right", e: Event) {
+  const val = +(e.target as HTMLInputElement).value;
+  if (side === "left") store.leftImgOffset = val;
+  else store.rightImgOffset = val;
+  // Re-render to apply offset
+  if (store.current >= 0) renderStage(store.current);
   store.autosave();
 }
 
@@ -188,6 +202,13 @@ async function exportVideo() {
 
   store.exporting = true;
   store.cancelFlag = false;
+
+  // Hide UI elements that should not appear in video frames
+  const badgeEl = stageRef.value?.parentElement?.querySelector(".beat-badge") as HTMLElement | null;
+  const prevBadgeDisplay = badgeEl?.style.display ?? "";
+  const prevStageShadow = stageRef.value?.style.boxShadow ?? "";
+  if (badgeEl) badgeEl.style.display = "none";
+  if (stageRef.value) stageRef.value.style.boxShadow = "none";
 
   // Freeze current frame as overlay background
   let frozen: string | null = null;
@@ -290,6 +311,11 @@ async function exportVideo() {
   if (progressRef.value) progressRef.value.style.display = "none";
   if (progressBar.value) progressBar.value.style.width = "0";
   renderOverlay.value?.classList.remove("show");
+
+  // Restore hidden UI elements
+  if (badgeEl) badgeEl.style.display = prevBadgeDisplay;
+  if (stageRef.value) stageRef.value.style.boxShadow = prevStageShadow;
+
   store.exporting = false;
   store.cancelFlag = false;
   store.current = store.beats.length - 1;
@@ -323,11 +349,14 @@ defineExpose({ playPreview, exportVideo, updatePreview, reflowToFit, updateScale
         <span class="tool-label">实时预览</span>
         <div class="col-sliders">
           <span>左</span>
-          <input type="range" min="5" max="60" :value="store.colW[0]" @input="onSlider(0, $event)" />
+          <input type="range" min="8" max="50" :value="store.colW[0]" @input="onSlider(0, $event)" />
           <span>中</span>
-          <input type="range" min="5" max="60" :value="store.colW[1]" @input="onSlider(1, $event)" />
-          <span>右</span>
-          <input type="range" min="5" max="60" :value="store.colW[2]" @input="onSlider(2, $event)" />
+          <input type="range" min="20" max="72" :value="store.colW[1]" @input="onSlider(1, $event)" />
+          <span class="sep">|</span>
+          <span>左图位</span>
+          <input type="range" min="0" max="100" :value="store.leftImgOffset" @input="onImgOffset('left', $event)" />
+          <span>右图位</span>
+          <input type="range" min="0" max="100" :value="store.rightImgOffset" @input="onImgOffset('right', $event)" />
         </div>
         <span class="preview-info">{{ previewInfo }}</span>
       </div>
@@ -406,6 +435,12 @@ defineExpose({ playPreview, exportVideo, updatePreview, reflowToFit, updateScale
   font-size: 11px;
   font-weight: 600;
   color: var(--muted);
+}
+
+.col-sliders .sep {
+  font-size: 13px;
+  color: var(--line);
+  margin: 0 2px;
 }
 
 .col-sliders input[type="range"] {
@@ -529,7 +564,7 @@ defineExpose({ playPreview, exportVideo, updatePreview, reflowToFit, updateScale
   height: 100%;
   width: 0;
   border-radius: 10px;
-  background: linear-gradient(90deg, var(--accent), #38bdf8, var(--accent2));
+  background: linear-gradient(90deg, var(--accent), #555, var(--accent2));
   background-size: 200% 100%;
   animation: progress-shimmer 1.5s linear infinite;
   transition: width 0.2s ease;
